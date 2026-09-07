@@ -1,6 +1,4 @@
 import streamlit as st
-import json
-from pathlib import Path
 from datetime import date, timedelta
 
 st.set_page_config(
@@ -9,7 +7,9 @@ st.set_page_config(
     layout="centered",
 )
 
-DATA_FILE = Path(__file__).with_name("habits_data.json")
+# -------------------------------------------------
+# PRESET HABITS
+# -------------------------------------------------
 
 PRESETS = [
     {"id": "move", "label": "Move more", "action": "Put on one shoe."},
@@ -23,8 +23,11 @@ PRESETS = [
 ]
 
 STARTER_IDS = ["move", "read", "eat", "water"]
-STARTER_STREAKS = {"move": 12, "read": 5, "eat": 8, "water": 21}
 
+
+# -------------------------------------------------
+# HELPERS
+# -------------------------------------------------
 
 def suggest_micro(goal_raw: str) -> str:
     goal = goal_raw.strip()
@@ -58,66 +61,28 @@ def suggest_micro(goal_raw: str) -> str:
 
 
 def default_habits():
-    habits = []
-
-    for preset_id in STARTER_IDS:
-        preset = next(p for p in PRESETS if p["id"] == preset_id)
-
-        habits.append(
-            {
-                **preset,
-                "streak": STARTER_STREAKS.get(preset_id, 0),
-                "completed": False,
-                "last_completed": None,
-            }
-        )
-
-    return habits
-
-
-def load_data():
-    if DATA_FILE.exists():
-        try:
-            data = json.loads(DATA_FILE.read_text(encoding="utf-8"))
-            habits = data.get("habits", default_habits())
-            last_open = data.get("last_open_date")
-
-            # Reset completion status when a new day starts.
-            if last_open != str(date.today()):
-                for habit in habits:
-                    habit["completed"] = False
-
-            return habits
-
-        except Exception:
-            return default_habits()
-
-    return default_habits()
-
-
-def save_data():
-    data = {
-        "habits": st.session_state.habits,
-        "last_open_date": str(date.today()),
-    }
-
-    DATA_FILE.write_text(
-        json.dumps(data, indent=2),
-        encoding="utf-8",
-    )
+    return [
+        {
+            **next(p for p in PRESETS if p["id"] == preset_id),
+            "streak": 0,
+            "completed": False,
+            "last_completed": None,
+        }
+        for preset_id in STARTER_IDS
+    ]
 
 
 def update_streak(habit):
     today = date.today()
     last_completed = habit.get("last_completed")
 
-    last_date = None
-
     if last_completed:
         try:
             last_date = date.fromisoformat(last_completed)
         except ValueError:
             last_date = None
+    else:
+        last_date = None
 
     # Do not increase twice on the same day.
     if last_date == today:
@@ -129,7 +94,7 @@ def update_streak(habit):
 
     # First completion.
     elif last_date is None:
-        habit["streak"] = max(habit.get("streak", 0), 0) + 1
+        habit["streak"] = 1
 
     # Missed one or more days.
     else:
@@ -138,12 +103,24 @@ def update_streak(habit):
     habit["last_completed"] = str(today)
 
 
-# --------------------------
+def reset_demo():
+    st.session_state.habits = default_habits()
+    st.session_state.current_id = st.session_state.habits[0]["id"]
+    st.session_state.view = "focus"
+    st.session_state.suggested_micro = ""
+    st.session_state.last_session_date = str(date.today())
+
+
+# -------------------------------------------------
 # SESSION STATE
-# --------------------------
+# -------------------------------------------------
+
+# IMPORTANT:
+# No JSON/database file is used.
+# Each browser session receives its own independent data.
 
 if "habits" not in st.session_state:
-    st.session_state.habits = load_data()
+    st.session_state.habits = default_habits()
 
 if "current_id" not in st.session_state:
     st.session_state.current_id = (
@@ -158,21 +135,29 @@ if "view" not in st.session_state:
 if "suggested_micro" not in st.session_state:
     st.session_state.suggested_micro = ""
 
+if "last_session_date" not in st.session_state:
+    st.session_state.last_session_date = str(date.today())
 
-# --------------------------
+# If the same browser session remains open across midnight,
+# reset only today's completion flags.
+if st.session_state.last_session_date != str(date.today()):
+    for habit in st.session_state.habits:
+        habit["completed"] = False
+
+    st.session_state.last_session_date = str(date.today())
+
+
+# -------------------------------------------------
 # CSS
-# --------------------------
+# -------------------------------------------------
 
 st.markdown(
     """
     <style>
-
-    /* Main page background */
     .stApp {
         background: #1B241D;
     }
 
-    /* Hide Streamlit header/footer */
     header[data-testid="stHeader"] {
         background: transparent;
     }
@@ -181,7 +166,6 @@ st.markdown(
         visibility: hidden;
     }
 
-    /* Main app card */
     .block-container {
         max-width: 430px;
         background: #EEF0E3;
@@ -193,7 +177,6 @@ st.markdown(
         min-height: 650px;
     }
 
-    /* General text */
     .block-container,
     .block-container p,
     .block-container span,
@@ -201,7 +184,6 @@ st.markdown(
         color: #202B22;
     }
 
-    /* Progress text */
     .progress-text {
         font-size: 13px;
         color: #647163;
@@ -209,7 +191,6 @@ st.markdown(
         margin-bottom: 8px;
     }
 
-    /* Habit label */
     .habit-label {
         font-size: 14px;
         color: #647163;
@@ -218,7 +199,6 @@ st.markdown(
         margin-bottom: 12px;
     }
 
-    /* Large micro-habit text */
     .habit-action {
         font-family: Georgia, serif;
         font-size: 34px;
@@ -230,7 +210,6 @@ st.markdown(
         max-width: 320px;
     }
 
-    /* Streak */
     .streak {
         text-align: center;
         color: #647163;
@@ -239,14 +218,13 @@ st.markdown(
         font-size: 14px;
     }
 
-    /* Completed page */
     .done-title {
         text-align: center;
         font-family: Georgia, serif;
         font-size: 30px;
         font-weight: 500;
         color: #202B22;
-        padding-top: 65px;
+        padding-top: 58px;
         margin-bottom: 8px;
     }
 
@@ -257,7 +235,6 @@ st.markdown(
         margin-bottom: 28px;
     }
 
-    /* Preset cards */
     .micro-card {
         padding: 12px 14px;
         background: #F6F7EF;
@@ -271,7 +248,17 @@ st.markdown(
         color: #8A9587;
     }
 
-    /* Streamlit buttons */
+    .privacy-note {
+        margin-top: 24px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: #F6F7EF;
+        border: 1px solid #D8DECB;
+        color: #647163;
+        font-size: 12px;
+        text-align: center;
+    }
+
     div.stButton > button {
         border-radius: 14px;
         min-height: 44px;
@@ -288,32 +275,23 @@ st.markdown(
         border-color: #3F694B;
     }
 
-    /* Input controls */
-    div[data-baseweb="input"] input,
-    textarea {
-        border-radius: 12px !important;
-    }
-
-    /* Progress bar */
     div[data-testid="stProgress"] > div > div > div {
         background-color: #4B7857;
     }
 
-    /* Expander */
     details {
         background: #F6F7EF;
         border-radius: 14px;
     }
-
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 
-# --------------------------
-# APP LOGIC
-# --------------------------
+# -------------------------------------------------
+# APP HEADER / PROGRESS
+# -------------------------------------------------
 
 habits = st.session_state.habits
 done_count = sum(1 for h in habits if h.get("completed"))
@@ -338,9 +316,9 @@ else:
     st.progress(0)
 
 
-# --------------------------
+# -------------------------------------------------
 # ADD HABIT VIEW
-# --------------------------
+# -------------------------------------------------
 
 if st.session_state.view == "add":
 
@@ -372,7 +350,6 @@ if st.session_state.view == "add":
         with col2:
 
             if preset["id"] in added_ids:
-
                 st.button(
                     "Added",
                     key=f"added_{preset['id']}",
@@ -381,7 +358,6 @@ if st.session_state.view == "add":
                 )
 
             else:
-
                 if st.button(
                     "Add",
                     key=f"add_{preset['id']}",
@@ -398,15 +374,10 @@ if st.session_state.view == "add":
                     )
 
                     st.session_state.current_id = preset["id"]
-
-                    save_data()
-
                     st.session_state.view = "focus"
-
                     st.rerun()
 
     st.divider()
-
     st.caption("Or build your own")
 
     goal = st.text_input(
@@ -437,7 +408,10 @@ if st.session_state.view == "add":
 
             if micro.strip():
 
-                custom_id = f"custom-{len(st.session_state.habits) + 1}-{date.today()}"
+                custom_id = (
+                    f"custom-{len(st.session_state.habits) + 1}-"
+                    f"{date.today().isoformat()}"
+                )
 
                 st.session_state.habits.append(
                     {
@@ -452,17 +426,13 @@ if st.session_state.view == "add":
 
                 st.session_state.current_id = custom_id
                 st.session_state.suggested_micro = ""
-
-                save_data()
-
                 st.session_state.view = "focus"
-
                 st.rerun()
 
 
-# --------------------------
+# -------------------------------------------------
 # ALL DONE VIEW
-# --------------------------
+# -------------------------------------------------
 
 elif total > 0 and done_count == total:
 
@@ -486,17 +456,32 @@ elif total > 0 and done_count == total:
 
     st.write("")
 
-    if st.button(
-        "Add another habit",
-        use_container_width=True,
-    ):
-        st.session_state.view = "add"
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Review habits", use_container_width=True):
+            # Reopen the normal focus view without changing completion.
+            st.session_state.view = "focus"
+            if habits:
+                st.session_state.current_id = habits[0]["id"]
+            st.rerun()
+
+    with col2:
+        if st.button("Add another habit", use_container_width=True):
+            st.session_state.view = "add"
+            st.rerun()
+
+    st.write("")
+    st.caption("Demo option")
+
+    if st.button("Reset my session", use_container_width=True):
+        reset_demo()
         st.rerun()
 
 
-# --------------------------
+# -------------------------------------------------
 # FOCUS VIEW
-# --------------------------
+# -------------------------------------------------
 
 else:
 
@@ -512,7 +497,6 @@ else:
         )
 
         habit_names = [h["label"] for h in habits]
-
         current_index = habits.index(current)
 
         selected_label = st.selectbox(
@@ -541,11 +525,9 @@ else:
         )
 
         if selected.get("completed"):
-
             st.success("✓ Done for today")
 
         else:
-
             if st.button(
                 "🌱 Mark as done",
                 type="primary",
@@ -553,10 +535,7 @@ else:
             ):
 
                 update_streak(selected)
-
                 selected["completed"] = True
-
-                save_data()
 
                 next_habit = next(
                     (
@@ -603,29 +582,22 @@ else:
             edit_col, delete_col = st.columns(2)
 
             with edit_col:
-
                 if st.button(
                     "Save changes",
                     key=f"save_{selected['id']}",
                     use_container_width=True,
                 ):
-
                     selected["label"] = (
-                        new_label.strip()
-                        or selected["label"]
+                        new_label.strip() or selected["label"]
                     )
 
                     selected["action"] = (
-                        new_action.strip()
-                        or selected["action"]
+                        new_action.strip() or selected["action"]
                     )
-
-                    save_data()
 
                     st.rerun()
 
             with delete_col:
-
                 if st.button(
                     "Delete habit",
                     key=f"delete_{selected['id']}",
@@ -644,12 +616,15 @@ else:
                         else None
                     )
 
-                    save_data()
-
                     st.rerun()
 
-    else:
+        st.write("")
 
+        if st.button("Reset my session", use_container_width=True):
+            reset_demo()
+            st.rerun()
+
+    else:
         st.markdown(
             '<div class="done-title">No habits yet.</div>',
             unsafe_allow_html=True,
@@ -669,3 +644,17 @@ else:
         ):
             st.session_state.view = "add"
             st.rerun()
+
+# -------------------------------------------------
+# SESSION INFO
+# -------------------------------------------------
+
+st.markdown(
+    """
+    <div class="privacy-note">
+        This demo keeps habit data only in your current browser session.
+        Other visitors get their own separate session.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
